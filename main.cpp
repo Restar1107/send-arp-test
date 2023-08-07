@@ -81,6 +81,23 @@ void get_ip_addr(char * ether, char ip_addr_buf[INET_ADDRSTRLEN]){
 }
 
 
+// -------------- SHOW PACKET -------------
+void show_packet(char * packet){
+    for (int i = 0; i < 60; i++){
+        printf("%02x", (uint8_t)packet[i]);
+        if (i%16 == 15){
+            printf("\n");
+        }
+        else if(i%8 == 7){
+            printf("-");
+        }
+        else {
+            printf(" ");
+        }
+    }
+}
+// -------------- SHOW PACKET -------------
+
 
 
 // --------------- MAIN -------------------
@@ -136,10 +153,10 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
 	}
 // --------------- PCAP_SEND --------------
-
+    
 
 // --------------- PCAP_GET ---------------
-    const char * text;
+    const uint8_t * text;
     while(1) {
         struct pcap_pkthdr *header;
         int res = pcap_next_ex(handle, &header, (const u_char**)(&text)); // open  (pcap_t *pcap, pcap_pkthdr **abstact info, packet const char **)
@@ -149,11 +166,18 @@ int main(int argc, char* argv[]) {
 			break;
 		}
 
+        // ------- DEBUG ------------------
+        show_packet((char*)text);
+        // ------- DEBUG ------------------
+
+
         // ------- MY_CODE ----------------
         unsigned char cap_ip[INET_ADDRSTRLEN] = {0,};
-        sprintf((char*)cap_ip, "%u.%u.%u.%u",text[0],text[1],text[2],text[3]);
-        if (strncmp((char *)cap_ip, argv[2], INET_ADDRSTRLEN)){printf("other packet \n");continue;}
-        else{break;}
+        sprintf((char*)cap_ip, "%u.%u.%u.%u",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
+        printf("\n%02x.%02x.%02x.%02x\n",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
+        printf("%u.%u.%u.%u\n",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
+        if (memcmp(cap_ip, argv[2], strlen((char*)cap_ip))){printf("\nother packet \n");continue;}
+        else{printf(" --------------- you did it !!! ------------- \n"); break;}
 
 
         // ------- MY_CODE ----------------
@@ -166,9 +190,12 @@ int main(int argc, char* argv[]) {
 
 // --------------- MAKE SECOND PACKET -----
     uint8_t cap_mac[6] = {0,};
-    memcpy(cap_mac, (char *)(text+0x16), MAC_ADDR_LEN);
+    memcpy(cap_mac, text+0x16, MAC_ADDR_LEN);
+
+    printf("sender MAC: %02x:%02x:%02x:%02x:%02x:%02x", cap_mac[0], cap_mac[1], cap_mac[2], cap_mac[3], cap_mac[4], cap_mac[5]);
 	packet.eth_.dmac_ = Mac(cap_mac);
 	packet.eth_.smac_ = Mac(my_mac);
+
 	packet.arp_.op_ = htons(ArpHdr::Reply);
 	packet.arp_.smac_ = Mac(cap_mac);
 	packet.arp_.sip_ = htonl(Ip(argv[2]));
@@ -178,10 +205,14 @@ int main(int argc, char* argv[]) {
 
 
 // --------------- PCAP_SEND --------------
-	res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-	if (res != 0) {
-		fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
-	}
+    while (1){
+        res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
+        if (res != 0) {
+            fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
+        }
+        sleep(1);
+    }
+    
 // --------------- PCAP_SEND --------------
 
 	pcap_close(handle);
