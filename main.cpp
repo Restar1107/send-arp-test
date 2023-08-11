@@ -1,22 +1,11 @@
-#include <linux/if.h>
-#include <cstring>
-#include <cstdio>
 #include <pcap.h>
 #include "ethhdr.h"
 #include "arphdr.h"
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
-#include <linux/if.h>
-#include <netdb.h>
+#include "get_my_mac.h"
+#include "get_my_ip.h"
+#include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
-#include <regex>
-#include <arpa/inet.h>
-#include <fstream>
-#include <streambuf>
-#include <iostream>
-#define MAC_ADDR_LEN 6
+
 
 #pragma pack(push, 1)
 struct EthArpPacket final {
@@ -25,61 +14,6 @@ struct EthArpPacket final {
 };
 
 #pragma pack(pop)
-
-typedef struct {
-	char* dev_;
-} Param;
-
-Param param = {
-	.dev_ = NULL
-};
-
-
-void usage() {
-	printf("syntax: send-arp-test <interface>\n");
-	printf("sample: send-arp-test wlan0\n");
-}
-
-bool get_mac_address(const std::string& if_name, uint8_t *mac_addr_buf) {
-    std::string mac_addr;
-    std::ifstream iface("/sys/class/net/" + if_name + "/address");
-    std::string str((std::istreambuf_iterator<char>(iface)), std::istreambuf_iterator<char>());
-    if (str.length() > 0) {
-        std::string hex = regex_replace(str, std::regex(":"), "");
-        uint64_t result = stoull(hex, 0, 16);
-        for (int i = 0; i < MAC_ADDR_LEN; i++) {
-            mac_addr_buf[MAC_ADDR_LEN-i-1] = (uint8_t) ((result & ((uint64_t) 0xFF << (i * 8))) >> (i * 8));
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
-bool parse(Param* param, int argc, char* argv[]) {
-	if (argc != 2) {
-		usage();
-		return false;
-	}
-	param->dev_ = argv[1];
-	return true;
-}
-
-void get_ip_addr(char * ether, char ip_addr_buf[INET_ADDRSTRLEN]){
-    int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-
-    struct ifreq ifr{};
-    strcpy(ifr.ifr_name, ether);
-    ioctl(fd, SIOCGIFADDR, &ifr);
-    close(fd);
-
-    
-    strcpy(ip_addr_buf, inet_ntoa(((sockaddr_in *) &ifr.ifr_addr)->sin_addr));
-
-    std::cout << ip_addr_buf << std::endl;
-}
-
 
 // -------------- SHOW PACKET -------------
 void show_packet(char * packet){
@@ -103,8 +37,6 @@ void show_packet(char * packet){
 // --------------- MAIN -------------------
 
 int main(int argc, char* argv[]) {
-
-
 // --------------- PCAP_OPEN --------------
 	char* dev = argv[1];
 	char errbuf[PCAP_ERRBUF_SIZE];
@@ -119,10 +51,10 @@ int main(int argc, char* argv[]) {
 
 // --------------- MY CODE ----------------
     uint8_t my_mac[6] = {0,};
-    get_mac_address(argv[1], my_mac);
+    get_my_mac((const std::string&) argv[1], my_mac);
 
     char my_ip[INET_ADDRSTRLEN] = {0,};
-    get_ip_addr(argv[1], my_ip);
+    get_my_ip(argv[1], my_ip);
 
 // --------------- MY CODE ----------------
 
@@ -178,11 +110,7 @@ int main(int argc, char* argv[]) {
         printf("%u.%u.%u.%u\n",text[0x1C],text[0x1D],text[0X1E],text[0X1F]);
         if (memcmp(cap_ip, argv[2], strlen((char*)cap_ip))){printf("\nother packet \n");continue;}
         else{printf(" --------------- you did it !!! ------------- \n"); break;}
-
-
         // ------- MY_CODE ----------------
-
-		printf("%u bytes captured\n", header->caplen);
     }
 // --------------- PCAP_GET ---------------
 
@@ -191,16 +119,14 @@ int main(int argc, char* argv[]) {
 // --------------- MAKE SECOND PACKET -----
     uint8_t cap_mac[6] = {0,};
     memcpy(cap_mac, text+0x16, MAC_ADDR_LEN);
-
     printf("sender MAC: %02x:%02x:%02x:%02x:%02x:%02x", cap_mac[0], cap_mac[1], cap_mac[2], cap_mac[3], cap_mac[4], cap_mac[5]);
-	packet.eth_.dmac_ = Mac(cap_mac);
-	packet.eth_.smac_ = Mac(my_mac);
 
-	packet.arp_.op_ = htons(ArpHdr::Reply);
-	packet.arp_.smac_ = Mac(cap_mac);
-	packet.arp_.sip_ = htonl(Ip(argv[2]));
-	packet.arp_.tmac_ = Mac(my_mac);
-	packet.arp_.tip_ = htonl(Ip(argv[3]));
+    
+	packet.eth_.smac_ = Mac(cap_mac);
+	packet.arp_.smac_ = Mac(my_mac);
+	packet.arp_.sip_ = htonl(Ip(argv[3]));
+	packet.arp_.tmac_ = Mac(cap_mac);
+	packet.arp_.tip_ = htonl(Ip(argv[2]));
 // --------------- MAKE SECOND PACKET -----
 
 
